@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import json
 
 # Get the path of this file.
 path = Path(__file__).parent
@@ -8,84 +9,45 @@ with open(path / ".vimrc", "r", encoding="utf-8") as f:
     lines = f.readlines()
 
 maptypes = {
-    "nmap": "normalModeKeyBindings",
-    "vmap": "visualModeKeyBindings",
-    "imap": "insertModeKeyBindings",
-    "nnoremap": "normalModeKeyBindingsNonRecursive",
-    "vnoremap": "visualModeKeyBindingsNonRecursive",
-    "inoremap": "insertModeKeyBindingsNonRecursive",
+    "nmap": "vim.normalModeKeyBindings",
+    "vmap": "vim.visualModeKeyBindings",
+    "imap": "vim.insertModeKeyBindings",
+    "nnoremap": "vim.normalModeKeyBindingsNonRecursive",
+    "vnoremap": "vim.visualModeKeyBindingsNonRecursive",
+    "inoremap": "vim.insertModeKeyBindingsNonRecursive",
 }
 
-maplists = {
-    "nmap": [],
-    "vmap": [],
-    "imap": [],
-    "nnoremap": [],
-    "vnoremap": [],
-    "inoremap": [],
+jsondata = {
+    "vim.normalModeKeyBindings": [],
+    "vim.visualModeKeyBindings": [],
+    "vim.insertModeKeyBindings": [],
+    "vim.normalModeKeyBindingsNonRecursive": [],
+    "vim.visualModeKeyBindingsNonRecursive": [],
+    "vim.insertModeKeyBindingsNonRecursive": [],
 }
 
-new_file = "{\n"
+
+# Parses abc to ["a", "b", "c"] and :wq<CR> to [":wq"]
+def mapToJSONList(mapstring, after=False):
+    if after and mapstring.startswith(":") and len(mapstring) > 1:
+        map_json = re.match("(:\w+)", mapstring).group(1)
+        return {"command": [map_json]}
+
+    parts = re.findall("(<[^>]+>|.)", mapstring)
+    return {"after" if after else "before": parts}
+
 
 # Get all the mappings and place them in the correct category.
 for item in lines:
     matches = re.match("(^.*map)\s([\S]+)\s+([\S]+)$", item)
     if matches:
         maptype = matches.group(1)
-        before = matches.group(2)
-        after = matches.group(3)
-        if maptype in maplists:
-            maplists[maptype].append({"before": before, "after": after})
+        before = mapToJSONList(matches.group(2))
+        after = mapToJSONList(matches.group(3), True)
+        maptype = maptypes[maptype]
+        jsondata[maptype].append({**before, **after})
 
-
-# Parses abc to ["a", "b", "c"] and :wq<CR> to [":wq"]
-def mapToJSONList(mapstring, command):
-    map_json = "["
-    if command:
-        map_json += '"' + re.match("(:\w+)", mapstring).group(1) + '"]'
-        return map_json
-    else:
-        parts = re.findall("(<[^>]+>|.)", mapstring)
-        for part in parts:
-
-            if part == '"':
-                part = '\\"'
-
-            map_json += '"' + part + '", '
-
-            # Remove the last ', '
-    return map_json[:-2] + "]"
-
-
-# Turn all the mappings into JSON format
-for maptype in maplists:
-    maplist = maplists[maptype]
-
-    if len(maplist) > 0:
-        new_file += '"vim.' + maptypes[maptype] + '": [\n'
-
-        for item in maplist:
-            new_file += '{\n"before": '
-            new_file += mapToJSONList(item["before"], False)
-
-            # Check if it's a command
-            after = item["after"]
-            command = False
-            if after.startswith(":") and len(after) > 1:
-                new_file += ',\n"commands": '
-                command = True
-            else:
-                new_file += ',\n"after": '
-            new_file += mapToJSONList(item["after"], command)
-            new_file += "\n},\n"
-
-            # Remove the last ',\n'
-        new_file = new_file[:-2]
-        new_file += "\n],\n"
-
-# Remove the last '],\n'
-new_file = new_file[:-2] + "\n}"
 
 # Write the JSON to settings.json in the same directory.
 with open(path / "settings.json", "w") as f:
-    f.write(new_file)
+    json.dump(jsondata, f, indent=4)
